@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Müşteri Paneli</title>
+<style>
+  :root {
+    --ink: #1B2430;
+    --ink-soft: #3A4657;
+    --paper: #F6F5F1;
+    --card: #FFFFFF;
+    --line: #E4E1D8;
+    --gold: #C79A45;
+    --gold-dark: #A67F35;
+    --ok: #3D7A56;
+    --warn: #B08A2E;
+    --bad: #B0483F;
+    --muted: #8A8578;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .hidden { display: none !important; }
+
+  /* ---- LOGIN ---- */
+  #login-view {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-box {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 36px 28px;
+    width: 100%;
+    max-width: 360px;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .brand-mark {
+    width: 10px; height: 10px;
+    background: var(--gold);
+    border-radius: 2px;
+    display: inline-block;
+  }
+  .brand-name { font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
+  .login-box p.sub { color: var(--muted); font-size: 14px; margin: 4px 0 24px; }
+  label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+  }
+  input {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 15px;
+    margin-bottom: 16px;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+  button {
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+  }
+  .btn-primary {
+    width: 100%;
+    background: var(--ink);
+    color: #fff;
+    padding: 13px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: var(--ink-soft); }
+  #login-error {
+    color: var(--bad);
+    font-size: 13px;
+    margin-top: 12px;
+    display: none;
+  }
+
+  /* ---- DASHBOARD ---- */
+  header {
+    background: var(--ink);
+    color: #fff;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header .brand-name { color: #fff; }
+  header .who { font-size: 13px; color: #C9CDD4; }
+  header .logout {
+    background: transparent;
+    border: 1px solid #4A5566;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  header .logout:hover { background: #2A3444; }
+
+  main { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .stat-card:hover { border-color: var(--gold); }
+  .stat-card.active { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+  .stat-num { font-size: 24px; font-weight: 700; line-height: 1.1; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .toolbar input {
+    margin-bottom: 0;
+    flex: 1;
+  }
+
+  .lead-list { display: flex; flex-direction: column; gap: 10px; }
+  .lead-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--muted);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+  .lead-card[data-status="ilgilendi"] { border-left-color: var(--ok); }
+  .lead-card[data-status="dusunuyor"] { border-left-color: var(--warn); }
+  .lead-card[data-status="ilgilenmedi"],
+  .lead-card[data-status="ulasimadi"] { border-left-color: var(--bad); }
+  .lead-card[data-status="bekliyor"] { border-left-color: var(--gold); }
+
+  .lead-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .lead-name { font-weight: 700; font-size: 16px; }
+  .lead-phone { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .lead-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  .lead-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 6px 16px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin-bottom: 12px;
+  }
+  .lead-details b { color: var(--ink); font-weight: 600; }
+
+  .status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .status-btn {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 6px 11px;
+    border-radius: 20px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .status-btn.selected { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  .note-area {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .note-area textarea {
+    flex: 1;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    min-height: 36px;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .note-save {
+    background: var(--gold);
+    color: #fff;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .note-save:hover { background: var(--gold-dark); }
+  .note-saved-tag {
+    font-size: 11px;
+    color: var(--ok);
+    margin-left: 8px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-view">
+  <div class="login-box">
+    <div class="brand"><span class="brand-mark"></span><span class="brand-name">Müşteri Paneli</span></div>
+    <p class="sub">Devam etmek için giriş yapın</p>
+    <form id="login-form">
+      <label>Telefon</label>
+      <input type="text" id="login-phone" placeholder="05XXXXXXXXX" autocomplete="username" required>
+      <label>Şifre</label>
+      <input type="password" id="login-password" autocomplete="current-password" required>
+      <button type="submit" class="btn-primary">Giriş Yap</button>
+      <p id="login-error"></p>
+    </form>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard-view" class="hidden">
+  <header>
+    <span class="brand-name">Müşteri Paneli</span>
+    <div style="display:flex; align-items:center; gap:14px;">
+      <span class="who" id="who-label"></span>
+      <button class="logout" id="logout-btn">Çıkış</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="stats" id="stats"></div>
+
+    <div class="toolbar">
+      <input type="text" id="search-input" placeholder="İsim veya telefon ara...">
+    </div>
+
+    <div class="lead-list" id="lead-list"></div>
+    <div class="empty-state hidden" id="empty-state">Kayıt bulunamadı.</div>
+  </main>
+</div>
+
+<script>
+const STATUS_LABELS = {
+  bekliyor: 'Bekliyor',
+  ilgilendi: 'İlgilendi',
+  dusunuyor: 'Düşünüyor',
+  ilgilenmedi: 'İlgilenmedi',
+  ulasimadi: 'Ulaşamadı',
+};
+const STATUS_ORDER = ['ilgilendi', 'dusunuyor', 'ulasimadi', 'ilgilenmedi'];
+
+let currentFilter = 'all';
+let searchQuery = '';
+let searchTimer = null;
+
+const loginView = document.getElementById('login-view');
+const dashboardView = document.getElementById('dashboard-view');
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (res.status === 401) {
+    showLogin();
+    throw new Error('unauthorized');
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Hata');
+  return data;
+}
+
+function showLogin() {
+  loginView.classList.remove('hidden');
+  dashboardView.classList.add('hidden');
+}
+
+function showDashboard(me) {
+  loginView.classList.add('hidden');
+  dashboardView.classList.remove('hidden');
+  document.getElementById('who-label').textContent = me.name || me.phone;
+  loadStats();
+  loadLeads();
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const phone = document.getElementById('login-phone').value;
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  errorEl.style.display = 'none';
+  try {
+    const data = await api('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ phone, password }),
+    });
+    showDashboard(data);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  }
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await api('/api/logout', { method: 'POST' });
+  showLogin();
+});
+
+async function loadStats() {
+  const stats = await api('/api/stats');
+  const cards = [
+    { key: 'all', label: 'Toplam', value: stats.toplam },
+    { key: 'bekliyor', label: 'Bekliyor', value: stats.bekliyor },
+    { key: 'ilgilendi', label: 'İlgilendi', value: stats.ilgilendi },
+    { key: 'dusunuyor', label: 'Düşünüyor', value: stats.dusunuyor },
+    { key: 'ilgilenmedi', label: 'İlgilenmedi', value: stats.ilgilenmedi },
+    { key: 'ulasimadi', label: 'Ulaşamadı', value: stats.ulasimadi },
+  ];
+  const el = document.getElementById('stats');
+  el.innerHTML = cards.map(c => `
+    <div class="stat-card ${currentFilter === c.key ? 'active' : ''}" data-filter="${c.key}">
+      <div class="stat-num">${c.value}</div>
+      <div class="stat-label">${c.label}</div>
+    </div>
+  `).join('');
+  el.querySelectorAll('.stat-card').forEach(card => {
+    card.addEventListener('click', () => {
+      currentFilter = card.dataset.filter;
+      loadStats();
+      loadLeads();
+    });
+  });
+}
+
+async function loadLeads() {
+  const params = new URLSearchParams();
+  if (currentFilter !== 'all') params.set('status', currentFilter);
+  if (searchQuery) params.set('q', searchQuery);
+  const leads = await api('/api/leads?' + params.toString());
+  renderLeads(leads);
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+    ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function renderLeads(leads) {
+  const list = document.getElementById('lead-list');
+  const empty = document.getElementById('empty-state');
+  if (leads.length === 0) {
+    list.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+
+  list.innerHTML = leads.map(lead => {
+    const status = lead.call_status || 'bekliyor';
+    return `
+    <div class="lead-card" data-status="${status}" data-id="${lead.id}">
+      <div class="lead-top">
+        <div>
+          <div class="lead-name">${escapeHtml(lead.customer_name || 'İsimsiz')}</div>
+          <div class="lead-phone">+${escapeHtml(lead.phone || '')}</div>
+        </div>
+        <div class="lead-date">${formatDate(lead.created_at)}</div>
+      </div>
+      <div class="lead-details">
+        <div>🏠 <b>${escapeHtml(lead.ilan_arac || 'Belirtilmedi')}</b></div>
+        <div>💰 <b>${escapeHtml(lead.butce || 'Belirtilmedi')}</b></div>
+        <div>🔄 <b>${escapeHtml(lead.takas || 'Belirtilmedi')}</b></div>
+        <div>📅 <b>${escapeHtml(lead.zaman || 'Belirtilmedi')}</b></div>
+      </div>
+      <div class="status-row">
+        ${STATUS_ORDER.map(s => `
+          <button class="status-btn ${status === s ? 'selected' : ''}" data-status="${s}">
+            ${STATUS_LABELS[s]}
+          </button>
+        `).join('')}
+      </div>
+      <div class="note-area">
+        <textarea placeholder="Not ekle...">${escapeHtml(lead.call_note || '')}</textarea>
+        <button class="note-save">Kaydet</button>
+        <span class="note-saved-tag">Kaydedildi</span>
+      </div>
+    </div>
+  `;
+  }).join('');
+
+  list.querySelectorAll('.lead-card').forEach(card => {
+    const id = card.dataset.id;
+
+    card.querySelectorAll('.status-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const newStatus = btn.dataset.status;
+        const isSelected = btn.classList.contains('selected');
+        const valueToSend = isSelected ? null : newStatus;
+        await api(`/api/leads/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ call_status: valueToSend }),
+        });
+        loadStats();
+        loadLeads();
+      });
+    });
+
+    const saveBtn = card.querySelector('.note-save');
+    const textarea = card.querySelector('textarea');
+    const tag = card.querySelector('.note-saved-tag');
+    saveBtn.addEventListener('click', async () => {
+      await api(`/api/leads/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ call_note: textarea.value }),
+      });
+      tag.style.opacity = '1';
+      setTimeout(() => tag.style.opacity = '0', 1500);
+    });
+  });
+}
+
+document.getElementById('search-input').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    searchQuery = e.target.value.trim();
+    loadLeads();
+  }, 350);
+});
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// Uygulama açılışı
+(async () => {
+  try {
+    const me = await api('/api/me');
+    showDashboard(me);
+  } catch {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>
