@@ -102,7 +102,7 @@ app.get('/api/leads', auth, async (req, res) => {
     }
     if (q) {
       params.push(`%${q}%`);
-      conditions.push(`(customer_name ILIKE $${params.length} OR phone ILIKE $${params.length})`);
+      conditions.push(`(customer_name ILIKE $${params.length} OR phone ILIKE $${params.length} OR ilan_arac ILIKE $${params.length})`);
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
