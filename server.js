@@ -5,12 +5,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const path = require('path');
-
+ 
 const app = express();
 app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
-
+ 
 const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT || 5432,
@@ -18,15 +18,15 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
 });
-
+ 
 const JWT_SECRET = process.env.JWT_SECRET || 'lutfen-degistir';
-
+ 
 // ---- BASİT RATE LIMIT (login için) ----
 // IP başına 15 dakikada en fazla 5 hatalı deneme.
 const loginAttempts = new Map(); // ip -> { count, firstAttempt }
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-const RATE_LIMIT_MAX = 5;
-
+const RATE_LIMIT_MAX = 20;
+ 
 function checkRateLimit(ip) {
   const now = Date.now();
   const entry = loginAttempts.get(ip);
@@ -41,11 +41,11 @@ function checkRateLimit(ip) {
   entry.count += 1;
   return { blocked: false };
 }
-
+ 
 function resetRateLimit(ip) {
   loginAttempts.delete(ip);
 }
-
+ 
 // Eski kayıtları arada bir temizle (bellek şişmesin)
 setInterval(() => {
   const now = Date.now();
@@ -53,7 +53,7 @@ setInterval(() => {
     if (now - entry.firstAttempt > RATE_LIMIT_WINDOW_MS) loginAttempts.delete(ip);
   }
 }, 10 * 60 * 1000);
-
+ 
 const STATUS_LABELS = {
   bekliyor: 'Bekliyor',
   ilgilendi: 'İlgilendi',
@@ -61,7 +61,7 @@ const STATUS_LABELS = {
   ilgilenmedi: 'İlgilenmedi',
   ulasimadi: 'Ulaşamadı',
 };
-
+ 
 function auth(req, res, next) {
   const token = req.cookies.token;
   if (!token) return res.status(401).json({ error: 'Giriş yapmalısınız' });
@@ -72,9 +72,9 @@ function auth(req, res, next) {
     res.status(401).json({ error: 'Oturum geçersiz, tekrar giriş yapın' });
   }
 }
-
+ 
 // ---- AUTH ----
-
+ 
 app.post('/api/login', async (req, res) => {
   try {
     const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
@@ -82,7 +82,7 @@ app.post('/api/login', async (req, res) => {
     if (limit.blocked) {
       return res.status(429).json({ error: `Çok fazla hatalı deneme. ${limit.waitMinutes} dakika sonra tekrar deneyin.` });
     }
-
+ 
     const { phone, password } = req.body;
     if (!phone || !password) {
       return res.status(400).json({ error: 'Telefon ve şifre gerekli' });
@@ -114,24 +114,24 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ error: 'Sunucu hatası' });
   }
 });
-
+ 
 app.post('/api/logout', (req, res) => {
   res.clearCookie('token');
   res.json({ ok: true });
 });
-
+ 
 app.get('/api/me', auth, (req, res) => {
   res.json({ name: req.user.name, phone: req.user.phone });
 });
-
+ 
 // ---- LEADS ----
-
+ 
 app.get('/api/leads', auth, async (req, res) => {
   try {
     const { status, q } = req.query;
     const conditions = [];
     const params = [];
-
+ 
     if (status && status !== 'all') {
       if (status === 'bekliyor') {
         conditions.push(`(call_status IS NULL OR call_status = 'bekliyor')`);
@@ -144,7 +144,7 @@ app.get('/api/leads', auth, async (req, res) => {
       params.push(`%${q}%`);
       conditions.push(`(customer_name ILIKE $${params.length} OR phone ILIKE $${params.length} OR ilan_arac ILIKE $${params.length})`);
     }
-
+ 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const { rows } = await pool.query(
       `SELECT id, session_id, customer_name, phone, ilan_arac, butce, takas, zaman,
@@ -161,7 +161,7 @@ app.get('/api/leads', auth, async (req, res) => {
     res.status(500).json({ error: 'Kayıtlar alınamadı' });
   }
 });
-
+ 
 app.get('/api/stats', auth, async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -180,19 +180,19 @@ app.get('/api/stats', auth, async (req, res) => {
     res.status(500).json({ error: 'Özet alınamadı' });
   }
 });
-
+ 
 app.patch('/api/leads/:id', auth, async (req, res) => {
   try {
     const { id } = req.params;
     const { call_status, call_note } = req.body;
-
+ 
     if (call_status !== undefined && !(call_status === null || STATUS_LABELS[call_status])) {
       return res.status(400).json({ error: 'Geçersiz durum' });
     }
-
+ 
     const sets = [];
     const params = [];
-
+ 
     if (call_status !== undefined) {
       params.push(call_status);
       sets.push(`call_status = $${params.length}`);
@@ -202,7 +202,7 @@ app.patch('/api/leads/:id', auth, async (req, res) => {
       sets.push(`call_note = $${params.length}`);
     }
     sets.push(`updated_at = now()`);
-
+ 
     params.push(id);
     const { rows } = await pool.query(
       `UPDATE leads SET ${sets.join(', ')} WHERE id = $${params.length}
@@ -216,6 +216,7 @@ app.patch('/api/leads/:id', auth, async (req, res) => {
     res.status(500).json({ error: 'Güncellenemedi' });
   }
 });
-
+ 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`CRM panel ${PORT} portunda çalışıyor`));
+ 
