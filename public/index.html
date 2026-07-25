@@ -307,12 +307,12 @@ async function api(path, opts = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...opts,
   });
-  if (res.status === 401) {
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  if (res.status === 401 && path !== '/api/login') {
     showLogin();
-    throw new Error('unauthorized');
   }
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Hata');
+  if (!res.ok) throw new Error(data.error || 'Beklenmeyen bir hata oluştu');
   return data;
 }
 
