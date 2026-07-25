@@ -21,6 +21,39 @@ const pool = new Pool({
 
 const JWT_SECRET = process.env.JWT_SECRET || 'lutfen-degistir';
 
+// ---- BASİT RATE LIMIT (login için) ----
+// IP başına 15 dakikada en fazla 5 hatalı deneme.
+const loginAttempts = new Map(); // ip -> { count, firstAttempt }
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const RATE_LIMIT_MAX = 5;
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now - entry.firstAttempt > RATE_LIMIT_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAttempt: now });
+    return { blocked: false };
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    const waitMs = RATE_LIMIT_WINDOW_MS - (now - entry.firstAttempt);
+    return { blocked: true, waitMinutes: Math.ceil(waitMs / 60000) };
+  }
+  entry.count += 1;
+  return { blocked: false };
+}
+
+function resetRateLimit(ip) {
+  loginAttempts.delete(ip);
+}
+
+// Eski kayıtları arada bir temizle (bellek şişmesin)
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of loginAttempts.entries()) {
+    if (now - entry.firstAttempt > RATE_LIMIT_WINDOW_MS) loginAttempts.delete(ip);
+  }
+}, 10 * 60 * 1000);
+
 const STATUS_LABELS = {
   bekliyor: 'Bekliyor',
   ilgilendi: 'İlgilendi',
@@ -44,6 +77,12 @@ function auth(req, res, next) {
 
 app.post('/api/login', async (req, res) => {
   try {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+    const limit = checkRateLimit(ip);
+    if (limit.blocked) {
+      return res.status(429).json({ error: `Çok fazla hatalı deneme. ${limit.waitMinutes} dakika sonra tekrar deneyin.` });
+    }
+
     const { phone, password } = req.body;
     if (!phone || !password) {
       return res.status(400).json({ error: 'Telefon ve şifre gerekli' });
@@ -57,6 +96,7 @@ app.post('/api/login', async (req, res) => {
     if (!ok) {
       return res.status(401).json({ error: 'Telefon veya şifre hatalı' });
     }
+    resetRateLimit(ip);
     const token = jwt.sign(
       { id: seller.id, phone: seller.phone, name: seller.name },
       JWT_SECRET,
