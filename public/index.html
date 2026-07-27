@@ -316,6 +316,7 @@
   .conversation-box.open { display: block; }
   .conversation-box .loading { color: var(--muted); }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 </head>
 <body>
 
@@ -350,7 +351,7 @@
 
     <div class="toolbar">
       <input type="text" id="search-input" placeholder="İsim, telefon veya ilan/araç ara...">
-      <button class="export-btn" id="export-btn">📊 CSV İndir</button>
+      <button class="export-btn" id="export-btn">📊 Excel İndir</button>
     </div>
     <div class="conversion-line" id="conversion-line"></div>
 
@@ -577,56 +578,93 @@ function renderLeads(leads) {
 
     const convBtn = card.querySelector('.conv-toggle-btn');
     const convBox = card.querySelector('.conversation-box');
-    let loaded = false;
-    convBtn.addEventListener('click', async () => {
+    const lead = currentLeads.find(l => String(l.id) === String(id));
+    convBtn.addEventListener('click', () => {
       const isOpen = convBox.classList.toggle('open');
-      if (isOpen && !loaded) {
-        convBox.innerHTML = '<span class="loading">Yükleniyor...</span>';
-        try {
-          const messages = await api(`/api/leads/${id}/conversation`);
-          if (messages.length === 0) {
-            convBox.innerHTML = '(Konuşma geçmişi bulunamadı)';
-          } else {
-            convBox.innerHTML = messages
-              .map(m => `<div><b>${m.role === 'user' ? '👤 Müşteri' : '🤖 Bot'}:</b> ${escapeHtml(m.content)}</div>`)
-              .join('');
-          }
-          loaded = true;
-        } catch (err) {
-          convBox.innerHTML = 'Konuşma yüklenemedi: ' + escapeHtml(err.message);
-        }
+      if (isOpen) {
+        const snapshot = lead?.conversation_snapshot;
+        convBox.innerHTML = snapshot
+          ? escapeHtml(snapshot)
+          : '(Bu lead için konuşma özeti kaydedilmemiş)';
       }
     });
   });
 }
 
-function exportLeadsCSV() {
+async function exportLeadsExcel() {
   if (!currentLeads.length) return;
-  const headers = ['Ad', 'Telefon', 'İlan/Araç', 'Bütçe', 'Takas', 'Zaman Planı', 'Durum', 'Not', 'Oluşturulma Tarihi'];
-  const rows = currentLeads.map(l => [
-    l.customer_name || '',
-    l.phone || '',
-    l.ilan_arac || '',
-    l.butce || '',
-    l.takas || '',
-    l.zaman || '',
-    STATUS_LABELS[l.call_status || 'bekliyor'] || '',
-    (l.call_note || '').replace(/\n/g, ' '),
-    formatDate(l.created_at),
-  ]);
-  const csvContent = [headers, ...rows]
-    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Leadler');
+
+  sheet.columns = [
+    { header: 'Ad', key: 'ad', width: 22 },
+    { header: 'Telefon', key: 'telefon', width: 16 },
+    { header: 'İlan / Araç', key: 'ilan', width: 28 },
+    { header: 'Bütçe', key: 'butce', width: 18 },
+    { header: 'Takas', key: 'takas', width: 18 },
+    { header: 'Zaman Planı', key: 'zaman', width: 18 },
+    { header: 'Durum', key: 'durum', width: 14 },
+    { header: 'Not', key: 'not', width: 34 },
+    { header: 'Oluşturulma Tarihi', key: 'tarih', width: 18 },
+  ];
+
+  currentLeads.forEach(l => {
+    sheet.addRow({
+      ad: l.customer_name || '',
+      telefon: '+' + (l.phone || ''),
+      ilan: l.ilan_arac || '',
+      butce: l.butce || '',
+      takas: l.takas || '',
+      zaman: l.zaman || '',
+      durum: STATUS_LABELS[l.call_status || 'bekliyor'] || '',
+      not: l.call_note || '',
+      tarih: formatDate(l.created_at),
+    });
+  });
+
+  const headerRow = sheet.getRow(1);
+  headerRow.height = 22;
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B2430' } };
+    cell.alignment = { vertical: 'middle', horizontal: 'left' };
+  });
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  sheet.eachRow((row, rowNumber) => {
+    row.eachCell(cell => {
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFE4E1D8' } },
+        bottom: { style: 'thin', color: { argb: 'FFE4E1D8' } },
+        left: { style: 'thin', color: { argb: 'FFE4E1D8' } },
+        right: { style: 'thin', color: { argb: 'FFE4E1D8' } },
+      };
+      cell.alignment = { vertical: 'middle', wrapText: true };
+    });
+    if (rowNumber > 1) {
+      row.height = 20;
+      if (rowNumber % 2 === 0) {
+        row.eachCell(cell => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF6F5F1' } };
+        });
+      }
+    }
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `leadler_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `leadler_${new Date().toISOString().slice(0, 10)}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }
 
-document.getElementById('export-btn').addEventListener('click', exportLeadsCSV);
+document.getElementById('export-btn').addEventListener('click', exportLeadsExcel);
 
 document.getElementById('search-input').addEventListener('input', (e) => {
   clearTimeout(searchTimer);
