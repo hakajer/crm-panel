@@ -243,6 +243,78 @@
     padding: 60px 20px;
     color: var(--muted);
   }
+
+  .conversion-line {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin: -8px 0 16px;
+  }
+  .conversion-line b { color: var(--gold-dark); }
+
+  .toolbar .export-btn {
+    background: var(--card);
+    border: 1px solid var(--line);
+    padding: 0 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .toolbar .export-btn:hover { border-color: var(--gold); color: var(--gold-dark); }
+
+  .waiting-badge {
+    display: inline-block;
+    background: #FBEAE8;
+    color: var(--bad);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 12px;
+    margin-top: 4px;
+  }
+
+  .next-reminder {
+    font-size: 12px;
+    color: var(--warn);
+    margin-bottom: 10px;
+  }
+
+  .action-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .action-btn {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .action-btn:hover { border-color: var(--gold); color: var(--gold-dark); }
+
+  .conversation-box {
+    display: none;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    max-height: 240px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+  .conversation-box.open { display: block; }
+  .conversation-box .loading { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -278,7 +350,9 @@
 
     <div class="toolbar">
       <input type="text" id="search-input" placeholder="İsim, telefon veya ilan/araç ara...">
+      <button class="export-btn" id="export-btn">📊 CSV İndir</button>
     </div>
+    <div class="conversion-line" id="conversion-line"></div>
 
     <div class="lead-list" id="lead-list"></div>
     <div class="empty-state hidden" id="empty-state">Kayıt bulunamadı.</div>
@@ -298,6 +372,7 @@ const STATUS_ORDER = ['ilgilendi', 'dusunuyor', 'ulasimadi', 'ilgilenmedi'];
 let currentFilter = 'all';
 let searchQuery = '';
 let searchTimer = null;
+let currentLeads = [];
 
 const loginView = document.getElementById('login-view');
 const dashboardView = document.getElementById('dashboard-view');
@@ -376,6 +451,12 @@ async function loadStats() {
       loadLeads();
     });
   });
+
+  const oran = stats.donusum_orani;
+  const conversionEl = document.getElementById('conversion-line');
+  conversionEl.textContent = (oran !== null && oran !== undefined)
+    ? `📈 Dönüşüm oranı: ${oran}% (ilgilenen / toplam)`
+    : '';
 }
 
 async function loadLeads() {
@@ -383,6 +464,7 @@ async function loadLeads() {
   if (currentFilter !== 'all') params.set('status', currentFilter);
   if (searchQuery) params.set('q', searchQuery);
   const leads = await api('/api/leads?' + params.toString());
+  currentLeads = leads;
   renderLeads(leads);
 }
 
@@ -390,6 +472,27 @@ function formatDate(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
     ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatReminderTime(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = d - now;
+  if (diffMs <= 0) return 'şimdi';
+  const diffMin = Math.round(diffMs / 60000);
+  if (diffMin < 60) return `${diffMin} dk sonra`;
+  const diffHour = Math.round(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} saat sonra`;
+  const diffDay = Math.round(diffHour / 24);
+  return `${diffDay} gün sonra`;
+}
+
+function waitingDaysBadge(lead) {
+  const status = lead.call_status || 'bekliyor';
+  if (status !== 'bekliyor') return '';
+  const days = Math.floor((Date.now() - new Date(lead.created_at)) / 86400000);
+  if (days < 2) return '';
+  return `<span class="waiting-badge">⚠️ ${days} gündür bekliyor</span>`;
 }
 
 function renderLeads(leads) {
@@ -404,12 +507,14 @@ function renderLeads(leads) {
 
   list.innerHTML = leads.map(lead => {
     const status = lead.call_status || 'bekliyor';
+    const waPhone = (lead.phone || '').replace(/\D/g, '');
     return `
     <div class="lead-card" data-status="${status}" data-id="${lead.id}">
       <div class="lead-top">
         <div>
           <div class="lead-name">${escapeHtml(lead.customer_name || 'İsimsiz')}</div>
           <div class="lead-phone">+${escapeHtml(lead.phone || '')}</div>
+          ${waitingDaysBadge(lead)}
         </div>
         <div class="lead-date">${formatDate(lead.created_at)}</div>
       </div>
@@ -419,6 +524,12 @@ function renderLeads(leads) {
         <div>🔄 <b>${escapeHtml(lead.takas || 'Belirtilmedi')}</b></div>
         <div>📅 <b>${escapeHtml(lead.zaman || 'Belirtilmedi')}</b></div>
       </div>
+      ${lead.next_reminder ? `<div class="next-reminder">⏰ Sonraki hatırlatma: ${formatReminderTime(lead.next_reminder)}</div>` : ''}
+      <div class="action-row">
+        <a class="action-btn" href="https://wa.me/${waPhone}" target="_blank" rel="noopener">💬 WhatsApp</a>
+        <button class="action-btn conv-toggle-btn">🗨️ Konuşmayı Gör</button>
+      </div>
+      <div class="conversation-box"></div>
       <div class="status-row">
         ${STATUS_ORDER.map(s => `
           <button class="status-btn ${status === s ? 'selected' : ''}" data-status="${s}">
@@ -463,8 +574,59 @@ function renderLeads(leads) {
       tag.style.opacity = '1';
       setTimeout(() => tag.style.opacity = '0', 1500);
     });
+
+    const convBtn = card.querySelector('.conv-toggle-btn');
+    const convBox = card.querySelector('.conversation-box');
+    let loaded = false;
+    convBtn.addEventListener('click', async () => {
+      const isOpen = convBox.classList.toggle('open');
+      if (isOpen && !loaded) {
+        convBox.innerHTML = '<span class="loading">Yükleniyor...</span>';
+        try {
+          const messages = await api(`/api/leads/${id}/conversation`);
+          if (messages.length === 0) {
+            convBox.innerHTML = '(Konuşma geçmişi bulunamadı)';
+          } else {
+            convBox.innerHTML = messages
+              .map(m => `<div><b>${m.role === 'user' ? '👤 Müşteri' : '🤖 Bot'}:</b> ${escapeHtml(m.content)}</div>`)
+              .join('');
+          }
+          loaded = true;
+        } catch (err) {
+          convBox.innerHTML = 'Konuşma yüklenemedi: ' + escapeHtml(err.message);
+        }
+      }
+    });
   });
 }
+
+function exportLeadsCSV() {
+  if (!currentLeads.length) return;
+  const headers = ['Ad', 'Telefon', 'İlan/Araç', 'Bütçe', 'Takas', 'Zaman Planı', 'Durum', 'Not', 'Oluşturulma Tarihi'];
+  const rows = currentLeads.map(l => [
+    l.customer_name || '',
+    l.phone || '',
+    l.ilan_arac || '',
+    l.butce || '',
+    l.takas || '',
+    l.zaman || '',
+    STATUS_LABELS[l.call_status || 'bekliyor'] || '',
+    (l.call_note || '').replace(/\n/g, ' '),
+    formatDate(l.created_at),
+  ]);
+  const csvContent = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `leadler_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('export-btn').addEventListener('click', exportLeadsCSV);
 
 document.getElementById('search-input').addEventListener('input', (e) => {
   clearTimeout(searchTimer);
