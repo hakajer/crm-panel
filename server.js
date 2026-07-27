@@ -148,7 +148,7 @@ app.get('/api/leads', auth, async (req, res) => {
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const { rows } = await pool.query(
       `SELECT l.id, l.session_id, l.customer_name, l.phone, l.ilan_arac, l.butce, l.takas, l.zaman,
-              l.created_at, l.call_status, l.call_note, l.updated_at,
+              l.created_at, l.call_status, l.call_note, l.updated_at, l.conversation_snapshot,
               (SELECT r.remind_at FROM reminders r
                 WHERE r.phone = l.phone AND r.sent = false
                 ORDER BY r.remind_at ASC LIMIT 1) AS next_reminder
@@ -221,25 +221,6 @@ app.patch('/api/leads/:id', auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Güncellenemedi' });
-  }
-});
-
-// ---- KONUŞMA ÖZETİ ----
-
-app.get('/api/leads/:id/conversation', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const leadRes = await pool.query('SELECT session_id FROM leads WHERE id = $1', [id]);
-    if (leadRes.rows.length === 0) return res.status(404).json({ error: 'Kayıt bulunamadı' });
-    const sessionId = leadRes.rows[0].session_id;
-    const { rows } = await pool.query(
-      'SELECT role, content FROM conversation_messages WHERE session_id = $1 ORDER BY id ASC',
-      [sessionId]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Konuşma alınamadı' });
   }
 });
 
