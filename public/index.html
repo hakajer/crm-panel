@@ -315,6 +315,39 @@
   }
   .conversation-box.open { display: block; }
   .conversation-box .loading { color: var(--muted); }
+
+  .inline-link {
+    color: #2563EB;
+    font-weight: 600;
+    text-decoration: underline;
+    word-break: break-all;
+  }
+  .inline-link:hover { color: #1D4ED8; }
+
+  .trash-btn {
+    border-color: #FCA5A5 !important;
+    color: var(--bad) !important;
+  }
+  .trash-btn:hover {
+    background: #FEE2E2 !important;
+  }
+  .restore-btn {
+    border-color: #86EFAC !important;
+    color: var(--ok) !important;
+  }
+  .restore-btn:hover {
+    background: #DCFCE7 !important;
+  }
+  .trash-banner {
+    background: #FEF2F2;
+    border: 1px solid #FCA5A5;
+    color: var(--bad);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-bottom: 10px;
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 </head>
@@ -437,6 +470,7 @@ async function loadStats() {
     { key: 'dusunuyor', label: 'Düşünüyor', value: stats.dusunuyor },
     { key: 'ilgilenmedi', label: 'İlgilenmedi', value: stats.ilgilenmedi },
     { key: 'ulasimadi', label: 'Ulaşamadı', value: stats.ulasimadi },
+    { key: 'trash', label: '🗑️ Çöp Kutusu', value: stats.trash || 0 },
   ];
   const el = document.getElementById('stats');
   el.innerHTML = cards.map(c => `
@@ -470,6 +504,7 @@ async function loadLeads() {
 }
 
 function formatDate(iso) {
+  if (!iso) return '';
   const d = new Date(iso);
   return d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
     ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
@@ -489,11 +524,22 @@ function formatReminderTime(iso) {
 }
 
 function waitingDaysBadge(lead) {
+  if (lead.deleted_at) return '';
   const status = lead.call_status || 'bekliyor';
   if (status !== 'bekliyor') return '';
   const days = Math.floor((Date.now() - new Date(lead.created_at)) / 86400000);
   if (days < 2) return '';
   return `<span class="waiting-badge">⚠️ ${days} gündür bekliyor</span>`;
+}
+
+function formatWithLinks(text) {
+  if (!text || text === 'Belirtilmedi') return 'Belirtilmedi';
+  const escaped = escapeHtml(text);
+  const urlRegex = /(https?:\/\/[^\s<]+)/gi;
+  return escaped.replace(urlRegex, (url) => {
+    const label = url.length > 35 ? url.substring(0, 32) + '...' : url;
+    return `<a href="${url}" target="_blank" rel="noopener" class="inline-link">🔗 İlanı Aç (${label})</a>`;
+  });
 }
 
 function renderLeads(leads) {
@@ -507,10 +553,12 @@ function renderLeads(leads) {
   empty.classList.add('hidden');
 
   list.innerHTML = leads.map(lead => {
+    const isDeleted = !!lead.deleted_at;
     const status = lead.call_status || 'bekliyor';
     const waPhone = (lead.phone || '').replace(/\D/g, '');
     return `
-    <div class="lead-card" data-status="${status}" data-id="${lead.id}">
+    <div class="lead-card" data-status="${isDeleted ? 'deleted' : status}" data-id="${lead.id}">
+      ${isDeleted ? `<div class="trash-banner">🗑️ Çöp Kutusunda (Silinme: ${formatDate(lead.deleted_at)})</div>` : ''}
       <div class="lead-top">
         <div>
           <div class="lead-name">${escapeHtml(lead.customer_name || 'İsimsiz')}</div>
@@ -520,17 +568,22 @@ function renderLeads(leads) {
         <div class="lead-date">${formatDate(lead.created_at)}</div>
       </div>
       <div class="lead-details">
-        <div>🏠 <b>${escapeHtml(lead.ilan_arac || 'Belirtilmedi')}</b></div>
-        <div>💰 <b>${escapeHtml(lead.butce || 'Belirtilmedi')}</b></div>
-        <div>🔄 <b>${escapeHtml(lead.takas || 'Belirtilmedi')}</b></div>
-        <div>📅 <b>${escapeHtml(lead.zaman || 'Belirtilmedi')}</b></div>
+        <div>🏠 <b>${formatWithLinks(lead.ilan_arac)}</b></div>
+        <div>💰 <b>${formatWithLinks(lead.butce)}</b></div>
+        <div>🔄 <b>${formatWithLinks(lead.takas)}</b></div>
+        <div>📅 <b>${formatWithLinks(lead.zaman)}</b></div>
       </div>
-      ${lead.next_reminder ? `<div class="next-reminder">⏰ Sonraki hatırlatma: ${formatReminderTime(lead.next_reminder)}</div>` : ''}
+      ${lead.next_reminder && !isDeleted ? `<div class="next-reminder">⏰ Sonraki hatırlatma: ${formatReminderTime(lead.next_reminder)}</div>` : ''}
       <div class="action-row">
         <a class="action-btn" href="https://wa.me/${waPhone}" target="_blank" rel="noopener">💬 WhatsApp</a>
         <button class="action-btn conv-toggle-btn">🗨️ Konuşmayı Gör</button>
+        ${isDeleted
+          ? `<button class="action-btn restore-btn" data-id="${lead.id}">↩️ Geri Yükle</button>`
+          : `<button class="action-btn trash-btn" data-id="${lead.id}">🗑️ Sil</button>`
+        }
       </div>
       <div class="conversation-box"></div>
+      ${!isDeleted ? `
       <div class="status-row">
         ${STATUS_ORDER.map(s => `
           <button class="status-btn ${status === s ? 'selected' : ''}" data-status="${s}">
@@ -543,6 +596,7 @@ function renderLeads(leads) {
         <button class="note-save">Kaydet</button>
         <span class="note-saved-tag">Kaydedildi</span>
       </div>
+      ` : ''}
     </div>
   `;
   }).join('');
@@ -565,16 +619,38 @@ function renderLeads(leads) {
     });
 
     const saveBtn = card.querySelector('.note-save');
-    const textarea = card.querySelector('textarea');
-    const tag = card.querySelector('.note-saved-tag');
-    saveBtn.addEventListener('click', async () => {
-      await api(`/api/leads/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ call_note: textarea.value }),
+    if (saveBtn) {
+      const textarea = card.querySelector('textarea');
+      const tag = card.querySelector('.note-saved-tag');
+      saveBtn.addEventListener('click', async () => {
+        await api(`/api/leads/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ call_note: textarea.value }),
+        });
+        tag.style.opacity = '1';
+        setTimeout(() => tag.style.opacity = '0', 1500);
       });
-      tag.style.opacity = '1';
-      setTimeout(() => tag.style.opacity = '0', 1500);
-    });
+    }
+
+    const trashBtn = card.querySelector('.trash-btn');
+    if (trashBtn) {
+      trashBtn.addEventListener('click', async () => {
+        if (confirm('Bu lead kaydını Çöp Kutusu\'na taşımak istediğinize emin misiniz?')) {
+          await api(`/api/leads/${id}/trash`, { method: 'POST' });
+          loadStats();
+          loadLeads();
+        }
+      });
+    }
+
+    const restoreBtn = card.querySelector('.restore-btn');
+    if (restoreBtn) {
+      restoreBtn.addEventListener('click', async () => {
+        await api(`/api/leads/${id}/restore`, { method: 'POST' });
+        loadStats();
+        loadLeads();
+      });
+    }
 
     const convBtn = card.querySelector('.conv-toggle-btn');
     const convBox = card.querySelector('.conversation-box');
@@ -584,7 +660,7 @@ function renderLeads(leads) {
       if (isOpen) {
         const snapshot = lead?.conversation_snapshot;
         convBox.innerHTML = snapshot
-          ? escapeHtml(snapshot)
+          ? formatWithLinks(snapshot)
           : '(Bu lead için konuşma özeti kaydedilmemiş)';
       }
     });
