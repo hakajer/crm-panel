@@ -73,6 +73,13 @@ function auth(req, res, next) {
   }
 }
 
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Bu işlem için yönetici (Admin) yetkisi gerekiyor' });
+  }
+  next();
+}
+
 // ---- AUTH ----
 
 app.post('/api/login', async (req, res) => {
@@ -97,8 +104,9 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Telefon veya şifre hatalı' });
     }
     resetRateLimit(ip);
+    const userRole = seller.role || 'seller';
     const token = jwt.sign(
-      { id: seller.id, phone: seller.phone, name: seller.name },
+      { id: seller.id, phone: seller.phone, name: seller.name, role: userRole },
       JWT_SECRET,
       { expiresIn: '30d' }
     );
@@ -108,7 +116,7 @@ app.post('/api/login', async (req, res) => {
       sameSite: 'lax',
       secure: true,
     });
-    res.json({ ok: true, name: seller.name });
+    res.json({ ok: true, name: seller.name, phone: seller.phone, role: userRole });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Sunucu hatası' });
@@ -121,7 +129,83 @@ app.post('/api/logout', (req, res) => {
 });
 
 app.get('/api/me', auth, (req, res) => {
-  res.json({ name: req.user.name, phone: req.user.phone });
+  res.json({ id: req.user.id, name: req.user.name, phone: req.user.phone, role: req.user.role || 'seller' });
+});
+
+app.post('/api/change-password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Tüm alanları doldurun' });
+    }
+    if (newPassword.length < 4) {
+      return res.status(400).json({ error: 'Yeni şifre en az 4 karakter olmalıdır' });
+    }
+    const { rows } = await pool.query('SELECT password_hash FROM sellers WHERE id = $1', [req.user.id]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+    
+    const ok = await bcrypt.compare(currentPassword, rows[0].password_hash);
+    if (!ok) return res.status(400).json({ error: 'Mevcut şifreniz hatalı' });
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE sellers SET password_hash = $1 WHERE id = $2', [newHash, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Şifre değiştirilemedi' });
+  }
+});
+
+// ---- KULLANICI YÖNETİMİ (Sadece Admin) ----
+
+app.get('/api/users', auth, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT id, name, phone, role, created_at FROM sellers ORDER BY id ASC');
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Kullanıcılar alınamadı' });
+  }
+});
+
+app.post('/api/users', auth, requireAdmin, async (req, res) => {
+  try {
+    const { name, phone, password, role } = req.body;
+    if (!name || !phone || !password) {
+      return res.status(400).json({ error: 'Ad, telefon ve şifre alanları zorunludur' });
+    }
+    const cleanPhone = phone.trim();
+    const existing = await pool.query('SELECT id FROM sellers WHERE phone = $1', [cleanPhone]);
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'Bu telefon numarası zaten kayıtlı' });
+    }
+    const userRole = role === 'admin' ? 'admin' : 'seller';
+    const hash = await bcrypt.hash(password, 10);
+    const { rows } = await pool.query(
+      `INSERT INTO sellers (name, phone, password_hash, role) VALUES ($1, $2, $3, $4)
+       RETURNING id, name, phone, role, created_at`,
+      [name.trim(), cleanPhone, hash, userRole]
+    );
+    res.json({ ok: true, user: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Kullanıcı eklenemedi' });
+  }
+});
+
+app.delete('/api/users/:id', auth, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (String(id) === String(req.user.id)) {
+      return res.status(400).json({ error: 'Kendi admin hesabınızı silemezsiniz' });
+    }
+    const { rowCount } = await pool.query('DELETE FROM sellers WHERE id = $1', [id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Kullanıcı silinemedi' });
+  }
 });
 
 // ---- 6 Aylık Otomatik Çöp Kutusu Temizleme ----
