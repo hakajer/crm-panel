@@ -124,6 +124,20 @@ app.get('/api/me', auth, (req, res) => {
   res.json({ name: req.user.name, phone: req.user.phone });
 });
 
+// ---- 6 Aylık Otomatik Çöp Kutusu Temizleme ----
+async function purgeOldTrash() {
+  try {
+    const res = await pool.query("DELETE FROM leads WHERE deleted_at IS NOT NULL AND deleted_at < now() - INTERVAL '180 days'");
+    if (res.rowCount > 0) {
+      console.log(`[Purge] ${res.rowCount} adet 6 aydan eski silinmiş kayıt kalıcı olarak temizlendi.`);
+    }
+  } catch (err) {
+    console.error('[Purge Error]', err);
+  }
+}
+purgeOldTrash();
+setInterval(purgeOldTrash, 24 * 60 * 60 * 1000);
+
 // ---- LEADS ----
 
 app.get('/api/leads', auth, async (req, res) => {
@@ -132,14 +146,20 @@ app.get('/api/leads', auth, async (req, res) => {
     const conditions = [];
     const params = [];
 
-    if (status && status !== 'all') {
-      if (status === 'bekliyor') {
-        conditions.push(`(l.call_status IS NULL OR l.call_status = 'bekliyor')`);
-      } else {
-        params.push(status);
-        conditions.push(`l.call_status = $${params.length}`);
+    if (status === 'trash') {
+      conditions.push(`l.deleted_at IS NOT NULL`);
+    } else {
+      conditions.push(`l.deleted_at IS NULL`);
+      if (status && status !== 'all') {
+        if (status === 'bekliyor') {
+          conditions.push(`(l.call_status IS NULL OR l.call_status = 'bekliyor')`);
+        } else {
+          params.push(status);
+          conditions.push(`l.call_status = $${params.length}`);
+        }
       }
     }
+
     if (q) {
       params.push(`%${q}%`);
       conditions.push(`(l.customer_name ILIKE $${params.length} OR l.phone ILIKE $${params.length} OR l.ilan_arac ILIKE $${params.length})`);
@@ -148,13 +168,13 @@ app.get('/api/leads', auth, async (req, res) => {
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const { rows } = await pool.query(
       `SELECT l.id, l.session_id, l.customer_name, l.phone, l.ilan_arac, l.butce, l.takas, l.zaman,
-              l.created_at, l.call_status, l.call_note, l.updated_at, l.conversation_snapshot,
+              l.created_at, l.call_status, l.call_note, l.updated_at, l.conversation_snapshot, l.deleted_at,
               (SELECT r.remind_at FROM reminders r
                 WHERE r.phone = l.phone AND r.sent = false
                 ORDER BY r.remind_at ASC LIMIT 1) AS next_reminder
        FROM leads l
        ${where}
-       ORDER BY l.created_at DESC
+       ORDER BY l.deleted_at DESC NULLS LAST, l.created_at DESC
        LIMIT 300`,
       params
     );
@@ -169,15 +189,16 @@ app.get('/api/stats', auth, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
-        COUNT(*) AS toplam,
-        COUNT(*) FILTER (WHERE call_status IS NULL OR call_status = 'bekliyor') AS bekliyor,
-        COUNT(*) FILTER (WHERE call_status = 'ilgilendi') AS ilgilendi,
-        COUNT(*) FILTER (WHERE call_status = 'dusunuyor') AS dusunuyor,
-        COUNT(*) FILTER (WHERE call_status = 'ilgilenmedi') AS ilgilenmedi,
-        COUNT(*) FILTER (WHERE call_status = 'ulasimadi') AS ulasimadi,
+        COUNT(*) FILTER (WHERE deleted_at IS NULL) AS toplam,
+        COUNT(*) FILTER (WHERE deleted_at IS NULL AND (call_status IS NULL OR call_status = 'bekliyor')) AS bekliyor,
+        COUNT(*) FILTER (WHERE deleted_at IS NULL AND call_status = 'ilgilendi') AS ilgilendi,
+        COUNT(*) FILTER (WHERE deleted_at IS NULL AND call_status = 'dusunuyor') AS dusunuyor,
+        COUNT(*) FILTER (WHERE deleted_at IS NULL AND call_status = 'ilgilenmedi') AS ilgilenmedi,
+        COUNT(*) FILTER (WHERE deleted_at IS NULL AND call_status = 'ulasimadi') AS ulasimadi,
+        COUNT(*) FILTER (WHERE deleted_at IS NOT NULL) AS trash,
         ROUND(
-          COUNT(*) FILTER (WHERE call_status = 'ilgilendi')::numeric
-          / NULLIF(COUNT(*), 0) * 100, 1
+          COUNT(*) FILTER (WHERE deleted_at IS NULL AND call_status = 'ilgilendi')::numeric
+          / NULLIF(COUNT(*) FILTER (WHERE deleted_at IS NULL), 0) * 100, 1
         ) AS donusum_orani
       FROM leads
     `);
@@ -185,6 +206,36 @@ app.get('/api/stats', auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Özet alınamadı' });
+  }
+});
+
+app.post('/api/leads/:id/trash', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `UPDATE leads SET deleted_at = now() WHERE id = $1 RETURNING id, deleted_at`,
+      [id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Kayıt bulunamadı' });
+    res.json({ ok: true, lead: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Çöp kutusuna taşınamadı' });
+  }
+});
+
+app.post('/api/leads/:id/restore', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query(
+      `UPDATE leads SET deleted_at = NULL WHERE id = $1 RETURNING id, deleted_at`,
+      [id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Kayıt bulunamadı' });
+    res.json({ ok: true, lead: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Geri yüklenemedi' });
   }
 });
 
