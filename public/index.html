@@ -348,6 +348,93 @@
     border-radius: 6px;
     margin-bottom: 10px;
   }
+
+  /* ---- MODALS ---- */
+  .modal-backdrop {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 16px;
+  }
+  .modal-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+    width: 100%;
+    max-width: 520px;
+    padding: 24px;
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.2);
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .modal-title { font-weight: 700; font-size: 18px; }
+  .modal-close {
+    background: transparent;
+    border: none;
+    font-size: 22px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .modal-close:hover { color: var(--ink); }
+  .header-btn {
+    background: #2A3444;
+    border: 1px solid #4A5566;
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .header-btn:hover { background: #3A4657; }
+  .user-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .user-table th, .user-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+  }
+  .user-table th { background: var(--paper); font-weight: 600; color: var(--ink-soft); }
+  .role-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .role-badge.admin { background: #FEF3C7; color: #92400E; }
+  .role-badge.seller { background: #E0E7FF; color: #3730A3; }
+  select {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 15px;
+    margin-bottom: 16px;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .modal-msg {
+    font-size: 13px;
+    margin-top: 10px;
+  }
+  .modal-msg.error { color: var(--bad); }
+  .modal-msg.success { color: var(--ok); }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 </head>
@@ -373,8 +460,10 @@
 <div id="dashboard-view" class="hidden">
   <header>
     <span class="brand-name">Müşteri Paneli</span>
-    <div style="display:flex; align-items:center; gap:14px;">
+    <div style="display:flex; align-items:center; gap:8px;">
       <span class="who" id="who-label"></span>
+      <button class="header-btn hidden" id="users-btn">👥 Kullanıcılar</button>
+      <button class="header-btn" id="pw-btn">🔑 Şifre Değiştir</button>
       <button class="logout" id="logout-btn">Çıkış</button>
     </div>
   </header>
@@ -393,6 +482,69 @@
   </main>
 </div>
 
+<!-- MODAL: ŞİFRE DEĞİŞTİR -->
+<div id="pw-modal" class="modal-backdrop hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">🔑 Şifre Değiştir</span>
+      <button class="modal-close" id="pw-modal-close">&times;</button>
+    </div>
+    <form id="pw-form">
+      <label>Mevcut Şifre</label>
+      <input type="password" id="pw-current" required>
+      <label>Yeni Şifre</label>
+      <input type="password" id="pw-new" required minlength="4">
+      <label>Yeni Şifre (Tekrar)</label>
+      <input type="password" id="pw-confirm" required minlength="4">
+      <button type="submit" class="btn-primary">Şifreyi Güncelle</button>
+      <div id="pw-msg" class="modal-msg"></div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: KULLANICI YÖNETİMİ (Sadece Admin) -->
+<div id="users-modal" class="modal-backdrop hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span class="modal-title">👥 Kullanıcı Yönetimi</span>
+      <button class="modal-close" id="users-modal-close">&times;</button>
+    </div>
+    
+    <div id="users-list-box">
+      <table class="user-table">
+        <thead>
+          <tr>
+            <th>Ad Soyad</th>
+            <th>Telefon</th>
+            <th>Yetki</th>
+            <th>İşlem</th>
+          </tr>
+        </thead>
+        <tbody id="user-table-body"></tbody>
+      </table>
+    </div>
+
+    <hr style="border:0; border-top:1px solid var(--line); margin: 20px 0;">
+
+    <form id="add-user-form">
+      <div style="font-weight:700; margin-bottom:12px;">➕ Yeni Kullanıcı Ekle</div>
+      <label>Ad Soyad</label>
+      <input type="text" id="add-user-name" placeholder="Örn: Ahmet Yılmaz" required>
+      <label>Telefon Numarası</label>
+      <input type="text" id="add-user-phone" placeholder="05XXXXXXXXX" required>
+      <label>Şifre</label>
+      <input type="password" id="add-user-pw" required minlength="4">
+      <label>Yetki (Rol)</label>
+      <select id="add-user-role">
+        <option value="seller">Personel (Satıcı)</option>
+        <option value="admin">Yönetici (Admin)</option>
+      </select>
+      <button type="submit" class="btn-primary">Kullanıcıyı Kaydet</button>
+      <div id="add-user-msg" class="modal-msg"></div>
+    </form>
+  </div>
+</div>
+
 <script>
 const STATUS_LABELS = {
   bekliyor: 'Bekliyor',
@@ -407,6 +559,7 @@ let currentFilter = 'all';
 let searchQuery = '';
 let searchTimer = null;
 let currentLeads = [];
+let currentUser = null;
 
 const loginView = document.getElementById('login-view');
 const dashboardView = document.getElementById('dashboard-view');
@@ -431,9 +584,18 @@ function showLogin() {
 }
 
 function showDashboard(me) {
+  currentUser = me;
   loginView.classList.add('hidden');
   dashboardView.classList.remove('hidden');
   document.getElementById('who-label').textContent = me.name || me.phone;
+  
+  const usersBtn = document.getElementById('users-btn');
+  if (me.role === 'admin') {
+    usersBtn.classList.remove('hidden');
+  } else {
+    usersBtn.classList.add('hidden');
+  }
+
   loadStats();
   loadLeads();
 }
@@ -459,6 +621,116 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 document.getElementById('logout-btn').addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST' });
   showLogin();
+});
+
+// ---- MODAL İŞLEMLERİ ----
+const pwModal = document.getElementById('pw-modal');
+const pwBtn = document.getElementById('pw-btn');
+const pwClose = document.getElementById('pw-modal-close');
+const pwMsg = document.getElementById('pw-msg');
+
+pwBtn.addEventListener('click', () => {
+  pwMsg.textContent = '';
+  document.getElementById('pw-form').reset();
+  pwModal.classList.remove('hidden');
+});
+pwClose.addEventListener('click', () => pwModal.classList.add('hidden'));
+
+document.getElementById('pw-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const currentPassword = document.getElementById('pw-current').value;
+  const newPassword = document.getElementById('pw-new').value;
+  const confirmPassword = document.getElementById('pw-confirm').value;
+
+  if (newPassword !== confirmPassword) {
+    pwMsg.className = 'modal-msg error';
+    pwMsg.textContent = 'Yeni şifreler eşleşmiyor';
+    return;
+  }
+
+  try {
+    await api('/api/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    pwMsg.className = 'modal-msg success';
+    pwMsg.textContent = 'Şifreniz başarıyla güncellendi!';
+    setTimeout(() => pwModal.classList.add('hidden'), 1500);
+  } catch (err) {
+    pwMsg.className = 'modal-msg error';
+    pwMsg.textContent = err.message;
+  }
+});
+
+const usersModal = document.getElementById('users-modal');
+const usersBtn = document.getElementById('users-btn');
+const usersClose = document.getElementById('users-modal-close');
+const addMsg = document.getElementById('add-user-msg');
+
+usersBtn.addEventListener('click', () => {
+  addMsg.textContent = '';
+  document.getElementById('add-user-form').reset();
+  loadUsers();
+  usersModal.classList.remove('hidden');
+});
+usersClose.addEventListener('click', () => usersModal.classList.add('hidden'));
+
+async function loadUsers() {
+  try {
+    const users = await api('/api/users');
+    const tbody = document.getElementById('user-table-body');
+    tbody.innerHTML = users.map(u => `
+      <tr>
+        <td><b>${escapeHtml(u.name || '')}</b></td>
+        <td>+${escapeHtml(u.phone || '')}</td>
+        <td><span class="role-badge ${u.role === 'admin' ? 'admin' : 'seller'}">${u.role === 'admin' ? 'Yönetici' : 'Personel'}</span></td>
+        <td>
+          ${String(u.id) === String(currentUser.id)
+            ? '<span style="color:var(--muted); font-size:11px;">(Siz)</span>'
+            : `<button class="action-btn trash-btn delete-user-btn" data-id="${u.id}">Sil</button>`
+          }
+        </td>
+      </tr>
+    `).join('');
+
+    tbody.querySelectorAll('.delete-user-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (confirm('Bu kullanıcıyı silmek istediğinize emin misiniz?')) {
+          try {
+            await api(`/api/users/${btn.dataset.id}`, { method: 'DELETE' });
+            loadUsers();
+          } catch (err) {
+            alert(err.message);
+          }
+        }
+      });
+    });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+document.getElementById('add-user-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = document.getElementById('add-user-name').value;
+  const phone = document.getElementById('add-user-phone').value;
+  const password = document.getElementById('add-user-pw').value;
+  const role = document.getElementById('add-user-role').value;
+
+  try {
+    await api('/api/users', {
+      method: 'POST',
+      body: JSON.stringify({ name, phone, password, role }),
+    });
+    addMsg.className = 'modal-msg success';
+    addMsg.textContent = 'Kullanıcı eklendi!';
+    document.getElementById('add-user-form').reset();
+    loadUsers();
+    setTimeout(() => addMsg.textContent = '', 2500);
+  } catch (err) {
+    addMsg.className = 'modal-msg error';
+    addMsg.textContent = err.message;
+  }
 });
 
 async function loadStats() {
