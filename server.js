@@ -19,7 +19,11 @@ const pool = new Pool({
   database: process.env.DB_NAME,
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'lutfen-degistir';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET === 'lutfen-degistir' || JWT_SECRET === 'uzun_ve_rastgele_bir_metin_buraya') {
+  console.error('HATA: JWT_SECRET ortam değişkeni ayarlanmamış veya varsayılan değerde! Sunucu güvenli değil, durduruluyor.');
+  process.exit(1);
+}
 
 // ---- BASİT RATE LIMIT (login için) ----
 // IP başına 15 dakikada en fazla 5 hatalı deneme.
@@ -138,8 +142,8 @@ app.post('/api/change-password', auth, async (req, res) => {
     if (!currentPassword || !newPassword) {
       return res.status(400).json({ error: 'Tüm alanları doldurun' });
     }
-    if (newPassword.length < 4) {
-      return res.status(400).json({ error: 'Yeni şifre en az 4 karakter olmalıdır' });
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Yeni şifre en az 8 karakter olmalıdır' });
     }
     const { rows } = await pool.query('SELECT password_hash FROM sellers WHERE id = $1', [req.user.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Kullanıcı bulunamadı' });
@@ -173,6 +177,9 @@ app.post('/api/users', auth, requireAdmin, async (req, res) => {
     const { name, phone, password, role } = req.body;
     if (!name || !phone || !password) {
       return res.status(400).json({ error: 'Ad, telefon ve şifre alanları zorunludur' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Şifre en az 8 karakter olmalıdır' });
     }
     const cleanPhone = phone.trim();
     const existing = await pool.query('SELECT id FROM sellers WHERE phone = $1', [cleanPhone]);
