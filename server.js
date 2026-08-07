@@ -7,9 +7,18 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50kb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ---- GÜVENLİK HEADER'LARI ----
+app.use((req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -26,10 +35,27 @@ if (!JWT_SECRET || JWT_SECRET === 'lutfen-degistir' || JWT_SECRET === 'uzun_ve_r
 }
 
 // ---- BASİT RATE LIMIT (login için) ----
-// IP başına 15 dakikada en fazla 5 hatalı deneme.
+// IP başına 15 dakikada en fazla 20 hatalı deneme.
 const loginAttempts = new Map(); // ip -> { count, firstAttempt }
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX = 20;
+
+// ---- GENEL API RATE LIMIT ----
+// IP başına 15 dakikada en fazla 500 API isteği.
+const apiAttempts = new Map();
+const API_RATE_MAX = 500;
+
+function checkApiRateLimit(ip) {
+  const now = Date.now();
+  const entry = apiAttempts.get(ip);
+  if (!entry || now - entry.firstAttempt > RATE_LIMIT_WINDOW_MS) {
+    apiAttempts.set(ip, { count: 1, firstAttempt: now });
+    return { blocked: false };
+  }
+  if (entry.count >= API_RATE_MAX) return { blocked: true };
+  entry.count += 1;
+  return { blocked: false };
+}
 
 function checkRateLimit(ip) {
   const now = Date.now();
@@ -56,7 +82,21 @@ setInterval(() => {
   for (const [ip, entry] of loginAttempts.entries()) {
     if (now - entry.firstAttempt > RATE_LIMIT_WINDOW_MS) loginAttempts.delete(ip);
   }
+  for (const [ip, entry] of apiAttempts.entries()) {
+    if (now - entry.firstAttempt > RATE_LIMIT_WINDOW_MS) apiAttempts.delete(ip);
+  }
 }, 10 * 60 * 1000);
+
+// Genel API rate limit middleware (login endpoint'i kendi rate limit'ini kullanıyor)
+app.use('/api/', (req, res, next) => {
+  if (req.path === '/login') return next();
+  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const limit = checkApiRateLimit(ip);
+  if (limit.blocked) {
+    return res.status(429).json({ error: 'Günlük istek limiti aşıldı. Lütfen bekleyin.' });
+  }
+  next();
+});
 
 const STATUS_LABELS = {
   bekliyor: 'Bekliyor',
