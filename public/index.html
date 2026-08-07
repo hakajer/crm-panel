@@ -809,8 +809,13 @@ function formatWithLinks(text) {
   const escaped = escapeHtml(text);
   const urlRegex = /(https?:\/\/[^\s<]+)/gi;
   return escaped.replace(urlRegex, (url) => {
+    // HTML entity'lerini geri çöz, sonra URI olarak güvenli kodla
+    const decoded = url
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
+    const safeUrl = encodeURI(decoded);
     const label = url.length > 35 ? url.substring(0, 32) + '...' : url;
-    return `<a href="${url}" target="_blank" rel="noopener" class="inline-link">🔗 İlanı Aç (${label})</a>`;
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="inline-link">🔗 İlanı Aç (${label})</a>`;
   });
 }
 
